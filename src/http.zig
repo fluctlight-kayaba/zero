@@ -72,7 +72,7 @@ pub const Context = struct {
         return self.stream.writer();
     }
 
-    pub fn respond(self: *Context, status: Status, maybe_headers: ?std.StringHashMap([]const u8), body: []const u8) !void {
+    pub fn respond(self: *Context, status: Status, body: []const u8, maybe_headers: ?std.StringHashMap([]const u8)) !void {
         var writer = self.response();
         try writer.print("{s} {} {s}\r\n", .{ self.version.asString(), status.asNumber(), status.asString() });
 
@@ -163,8 +163,8 @@ pub const Server = struct {
         var context = try Context.init(self.allocator, stream);
 
         for (self.config.handlers) |handler| {
-            if (try handler.predicate(context)) {
-                try handler.func(context);
+            if (try handler.predicate(&context)) {
+                try handler.func(&context);
                 break;
             }
         }
@@ -183,7 +183,7 @@ pub const Server = struct {
     }
 };
 
-const Handler = struct {
-    predicate: fn (Context) anyerror!bool,
-    func: fn (Context) anyerror!void,
+pub const Handler = struct {
+    predicate: fn (*Context) anyerror!bool,
+    func: fn (*Context) anyerror!void,
 };
