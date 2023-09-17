@@ -4,9 +4,10 @@ const StreamServer = net.StreamServer;
 const Address = net.Address;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 const print = std.debug.print;
-const io_mode = .evented;
 
-pub fn main() !void {
+pub const io_mode = .evented;
+
+pub fn main() anyerror!void {
     var gpa = GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
@@ -14,15 +15,22 @@ pub fn main() !void {
     defer server.close();
     const address = try Address.resolveIp("127.0.0.1", 3005);
     try server.listen(address);
+    var frames = std.ArrayList(*Connection).init(allocator);
 
     while (true) {
         const connection = try server.accept();
-        try handler(allocator, connection.stream);
+        var conn = try allocator.create(Connection);
+        conn.* = .{ .frame = async handler(allocator, connection.stream) };
+        try frames.append(conn);
     }
 }
 
 const ParsingError = error{
     MethodNotValid,
+};
+
+const Connection = struct {
+    frame: @Frame(handler),
 };
 
 const Method = enum {
@@ -148,5 +156,8 @@ const HTTPContext = struct {
 fn handler(allocator: std.mem.Allocator, stream: net.Stream) !void {
     defer stream.close();
     var context = try HTTPContext.init(allocator, stream);
-    try context.respond(Status.OK, null, "Hello from ZIG");
+    if (std.mem.eql(u8, context.uri, "/sleep")) std.time.sleep(std.time.ns_per_s * 30);
+    context.debugPrintRequest();
+
+    try context.respond(Status.OK, null, "Hello from ZIG\n");
 }
