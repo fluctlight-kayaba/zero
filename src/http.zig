@@ -136,11 +136,12 @@ pub const Server = struct {
 
     pub const Config = struct {
         address: []const u8 = "127.0.0.1",
-        port: u16 = 3005,
+        port: u16 = 8080,
+        handlers: []Handler = undefined,
     };
 
     pub const Connection = struct {
-        frame: @Frame(handler),
+        frame: @Frame(run),
     };
 
     pub fn deinit(self: *Server) void {
@@ -157,13 +158,16 @@ pub const Server = struct {
         };
     }
 
-    fn handler(allocator: Allocator, stream: net.Stream) !void {
+    fn run(self: *Server, stream: net.Stream) !void {
         defer stream.close();
-        var context = try Context.init(allocator, stream);
-        if (std.mem.eql(u8, context.uri, "/sleep")) std.time.sleep(std.time.ns_per_s * 30);
-        context.debugPrintRequest();
+        var context = try Context.init(self.allocator, stream);
 
-        try context.respond(Status.OK, null, "Hello from ZIG\n");
+        for (self.config.handlers) |handler| {
+            if (try handler.predicate(context)) {
+                try handler.func(context);
+                break;
+            }
+        }
     }
 
     pub fn listen(self: *Server) !*Server {
@@ -173,8 +177,13 @@ pub const Server = struct {
         while (true) {
             const connection = try self.stream.accept();
             var conn = try self.allocator.create(Connection);
-            conn.* = .{ .frame = async handler(self.allocator, connection.stream) };
+            conn.* = .{ .frame = async self.run(connection.stream) };
             try self.frames.append(conn);
         }
     }
+};
+
+const Handler = struct {
+    predicate: fn (Context) anyerror!bool,
+    func: fn (Context) anyerror!void,
 };
